@@ -172,6 +172,18 @@ The multiplication-based checksum multiplies values and reduces modulo 256. Howe
 
 ![Histogram for Multiply](Multiply.png)
 
+## 🧪 Error Detection Coverage (Adjacent 2-Bit Flips)
+In the error-detection coverage stage, the ability of each 8-bit checksum to detect adjacent 2-bit errors has been evaluated on extracted 128-byte blocks. For each block, the original checksum value was computed first. Then, for every adjacent bit pair (p, p+1) within the 1024-bit block (p from 0 to 1022), the two bits were flipped to form a corrupted block, and the checksum was recomputed. An error case was counted as detected when the recomputed value differed from the original value; otherwise, it was counted as undetected. Coverage was reported as the percentage of detected cases over all tested cases across all blocks. Results are shown below:
+| Algorithm | Adjacent 2-Bit Detection Coverage (%) |
+|----------|----------------------------------------|
+| Sum      | 100.000000 |
+| Subtract | 100.000000 |
+| Multiply | 0.000000 |
+| AND      | 0.000000 |
+| OR       | 0.000000 |
+| XOR      | 100.000000 |
+| XNOR     | 100.000000 |
+| F        | 68.760538 |
 
 
 ## 🧠 Conclusion
