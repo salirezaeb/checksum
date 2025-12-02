@@ -1,0 +1,9 @@
+algorithm,coverage_percent
+Sum,100
+Subtract,100
+Multiply,0
+AND,0
+OR,0
+XOR,100
+XNOR,100
+F,68.7605376344086

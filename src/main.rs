@@ -2,10 +2,10 @@ use plotters::prelude::*;
 use std::error::Error;
 use std::fs;
 
+use digest::Digest;
+use md5::Context;
 use sha1::Sha1;
 use sha2::Sha256;
-use md5::Context;
-use digest::Digest;
 
 const NUM_BLOCKS: usize = 10000;
 const BLOCK_ROWS: usize = 8;
@@ -72,14 +72,68 @@ fn save_hist(name: &str, hist: &[u32; 256]) -> Result<(), Box<dyn Error>> {
 
     chart.configure_mesh().draw()?;
 
-    chart.draw_series(
-        (0u32..256u32).map(|x| {
-            let h = hist[x as usize];
-            Rectangle::new([(x, 0), (x + 1, h)], BLUE.filled())
-        }),
-    )?;
+    chart.draw_series((0u32..256u32).map(|x| {
+        let h = hist[x as usize];
+        Rectangle::new([(x, 0), (x + 1, h)], BLUE.filled())
+    }))?;
 
     root.present()?;
+    Ok(())
+}
+
+fn build_block(data: &[u8], block_idx: usize) -> Vec<u8> {
+    let data_len = data.len();
+    let mut block = vec![0u8; BLOCK_SIZE];
+    for i in 0..BLOCK_SIZE {
+        let idx = (block_idx * BLOCK_SIZE + i) % data_len;
+        block[i] = data[idx];
+    }
+    block
+}
+
+fn flip_bit(buf: &mut [u8], bitpos: usize) {
+    let byte = bitpos / 8;
+    let bit = bitpos % 8;
+    buf[byte] ^= 1u8 << bit;
+}
+
+fn detection_coverage_adjacent_2bit<F>(data: &[u8], checksum: F) -> f64
+where
+    F: Fn(&[u8]) -> u8,
+{
+    let total_bits = BLOCK_SIZE * 8;
+    let mut detected: u64 = 0;
+    let mut total: u64 = 0;
+
+    for block_idx in 0..NUM_BLOCKS {
+        let block = build_block(data, block_idx);
+        let c = checksum(&block);
+
+        let mut corrupted = block.clone();
+        for p in 0..(total_bits - 1) {
+            flip_bit(&mut corrupted, p);
+            flip_bit(&mut corrupted, p + 1);
+
+            let c2 = checksum(&corrupted);
+            if c2 != c {
+                detected += 1;
+            }
+            total += 1;
+
+            flip_bit(&mut corrupted, p);
+            flip_bit(&mut corrupted, p + 1);
+        }
+    }
+
+    (detected as f64) * 100.0 / (total as f64)
+}
+
+fn save_coverages_csv(filename: &str, rows: &[(&str, f64)]) -> Result<(), Box<dyn Error>> {
+    let mut out = String::from("algorithm,coverage_percent\n");
+    for (name, cov) in rows {
+        out.push_str(&format!("{},{}\n", name, cov));
+    }
+    fs::write(filename, out)?;
     Ok(())
 }
 
@@ -105,12 +159,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut hist_sha256 = [0u32; 256];
 
     for block_idx in 0..NUM_BLOCKS {
-        let mut block = vec![0u8; BLOCK_SIZE];
-
-        for i in 0..BLOCK_SIZE {
-            let idx = (block_idx * BLOCK_SIZE + i) % data_len;
-            block[i] = data[idx];
-        }
+        let block = build_block(&data, block_idx);
 
         hist_sum[checksum_sum(&block) as usize] += 1;
         hist_sub[checksum_sub(&block) as usize] += 1;
@@ -156,6 +205,23 @@ fn main() -> Result<(), Box<dyn Error>> {
     save_hist("SHA1", &hist_sha1)?;
     save_hist("MD5", &hist_md5)?;
     save_hist("SHA256", &hist_sha256)?;
+
+    let rows = [
+        ("Sum", detection_coverage_adjacent_2bit(&data, checksum_sum)),
+        ("Subtract", detection_coverage_adjacent_2bit(&data, checksum_sub)),
+        ("Multiply", detection_coverage_adjacent_2bit(&data, checksum_mul)),
+        ("AND", detection_coverage_adjacent_2bit(&data, checksum_and)),
+        ("OR", detection_coverage_adjacent_2bit(&data, checksum_or)),
+        ("XOR", detection_coverage_adjacent_2bit(&data, checksum_xor)),
+        ("XNOR", detection_coverage_adjacent_2bit(&data, checksum_xnor)),
+        ("F", detection_coverage_adjacent_2bit(&data, checksum_f)),
+    ];
+
+    for (name, cov) in &rows {
+        println!("Coverage {:<8}: {:.6}%", name, cov);
+    }
+
+    save_coverages_csv("coverage_adjacent_2bit.csv", &rows)?;
 
     Ok(())
 }
